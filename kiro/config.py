@@ -217,8 +217,10 @@ BASE_RETRY_DELAY: float = 1.0
 # Why "hidden"? These models work but are not advertised by Kiro's /ListAvailableModels.
 # We expose them to our users because they're useful.
 HIDDEN_MODELS: Dict[str, str] = {
-    # Claude 3.7 Sonnet - legacy model, maps to "auto" on new runtime endpoint
-    # "claude-3.7-sonnet": "auto",
+    # Models that work on Kiro but aren't returned by /ListAvailableModels.
+    # Format: "display_name" → "internal_kiro_id" (use same name if no internal mapping needed)
+    "claude-sonnet-5": "claude-sonnet-5",
+    "claude-opus-4.8": "claude-opus-4.8",
 }
 
 # ==================================================================================================
@@ -278,10 +280,12 @@ FALLBACK_MODELS: List[Dict[str, str]] = [
     {"modelId": "claude-sonnet-4"},
     {"modelId": "claude-sonnet-4.5"},
     {"modelId": "claude-sonnet-4.6"},
+    {"modelId": "claude-sonnet-5"},
     {"modelId": "claude-haiku-4.5"},
     {"modelId": "claude-opus-4.5"},
     {"modelId": "claude-opus-4.6"},
     {"modelId": "claude-opus-4.7"},
+    {"modelId": "claude-opus-4.8"},
     {"modelId": "deepseek-3.2"},
     {"modelId": "glm-5"},
     {"modelId": "minimax-m2.1"},
