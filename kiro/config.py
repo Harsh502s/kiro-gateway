@@ -218,9 +218,9 @@ BASE_RETRY_DELAY: float = 1.0
 # We expose them to our users because they're useful.
 HIDDEN_MODELS: Dict[str, str] = {
     # Models that work on Kiro but aren't returned by /ListAvailableModels.
-    # Format: "display_name" → "internal_kiro_id" (use same name if no internal mapping needed)
-    "claude-sonnet-5": "claude-sonnet-5",
-    "claude-opus-4.8": "claude-opus-4.8",
+    # Note: Since runtime.kiro.dev doesn't provide /ListAvailableModels,
+    # the gateway uses FALLBACK_MODELS as the static model list.
+    # Add models here ONLY if they need a different internal ID mapping.
 }
 
 # ==================================================================================================
@@ -268,13 +268,8 @@ HIDDEN_FROM_LIST: List[str] = ["auto"]
 # Fallback Models Configuration (DNS Failure Recovery)
 # ==================================================================================================
 
-# Fallback model list - used when /ListAvailableModels API is unreachable.
+# Fallback model list - used when dynamic model probing fails completely.
 # This ensures basic functionality even with DNS/network issues.
-#
-# IMPORTANT: This list represents known models at the time of this gateway version.
-# - Some models may not be available on your Kiro plan (e.g., Opus on free tier)
-# - New models released after this version won't appear here
-# - Update gateway regularly to get the latest model list
 FALLBACK_MODELS: List[Dict[str, str]] = [
     {"modelId": "auto"},
     {"modelId": "claude-sonnet-4"},
@@ -291,6 +286,54 @@ FALLBACK_MODELS: List[Dict[str, str]] = [
     {"modelId": "minimax-m2.1"},
     {"modelId": "minimax-m2.5"},
     {"modelId": "qwen3-coder-next"},
+]
+
+# ==================================================================================================
+# Candidate Models for Dynamic Probing
+# ==================================================================================================
+
+# Candidate models to probe at startup. The gateway sends a minimal request to each
+# model to check if it's available. Only models that respond successfully are exposed
+# in /v1/models. This allows automatic discovery of new models without code changes.
+#
+# The list should be broad — include future model versions you expect Kiro to add.
+# Non-existent models are simply filtered out (no harm in having extras).
+#
+# "auto" is always included and never probed (it's a routing alias, not a real model).
+CANDIDATE_MODELS: List[str] = [
+    # Claude Sonnet family
+    "claude-sonnet-4",
+    "claude-sonnet-4.5",
+    "claude-sonnet-4.6",
+    "claude-sonnet-5",
+    "claude-sonnet-5.5",
+    "claude-sonnet-6",
+    # Claude Haiku family
+    "claude-haiku-4.5",
+    "claude-haiku-5",
+    "claude-haiku-5.5",
+    "claude-haiku-6",
+    # Claude Opus family
+    "claude-opus-4.5",
+    "claude-opus-4.6",
+    "claude-opus-4.7",
+    "claude-opus-4.8",
+    "claude-opus-5",
+    "claude-opus-5.5",
+    "claude-opus-6",
+    # DeepSeek
+    "deepseek-3.2",
+    "deepseek-4",
+    # GLM
+    "glm-5",
+    "glm-6",
+    # MiniMax
+    "minimax-m2.1",
+    "minimax-m2.5",
+    "minimax-m3",
+    # Qwen
+    "qwen3-coder-next",
+    "qwen4-coder",
 ]
 
 # ==================================================================================================
