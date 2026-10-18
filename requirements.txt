@@ -1,12 +1,7 @@
 # Prod dependencies
 fastapi
-uvicorn[standard]
+uvicorn
 httpx
 loguru
 python-dotenv
 tiktoken
-
-# Testing dependencies
-pytest
-pytest-asyncio
-hypothesis

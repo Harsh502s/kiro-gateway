@@ -1998,3 +1998,174 @@ class TestChatCompletionsLegacyMode:
         
         assert failover_enabled is False
         print("✅ Legacy mode correctly skips failover loop")
+
+# ==================================================================================================
+# Tests for /v1/models memoization and stable output
+# ==================================================================================================
+
+class TestModelsEndpointMemoization:
+    """Tests for _build_models_body memoization and get_models branches."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_cache(self):
+        """Reset module-level memo so tests are independent."""
+        import kiro.routes_openai as ro
+        ro._models_response_cache = None
+        yield
+        ro._models_response_cache = None
+
+    @staticmethod
+    def _request(account_system, ids):
+        """Build a fake Request exposing app.state for both branches."""
+        manager = Mock()
+        manager.get_all_available_models.return_value = list(ids)
+        account = Mock()
+        account.model_resolver.get_available_models.return_value = list(ids)
+        manager.get_first_account.return_value = account
+        request = Mock()
+        request.app.state.account_system = account_system
+        request.app.state.account_manager = manager
+        return request, manager, account
+
+    @staticmethod
+    def _call(request):
+        import asyncio
+        from kiro.routes_openai import get_models
+        response = asyncio.run(get_models(request))
+        return response, json.loads(response.body)
+
+    def test_openai_list_format(self):
+        """
+        What it does: Calls get_models and inspects JSON.
+        Purpose: Ensure OpenAI list format (object/data/id/object/created/owned_by).
+        """
+        request, _, _ = self._request(True, ["claude-a", "claude-b"])
+        response, body = self._call(request)
+        assert response.media_type == "application/json"
+        assert list(body.keys()) == ["object", "data"]
+        assert body["object"] == "list"
+        assert [m["id"] for m in body["data"]] == ["claude-a", "claude-b"]
+        for m in body["data"]:
+            assert m["object"] == "model"
+            assert m["owned_by"] == "anthropic"
+            assert isinstance(m["created"], int)
+
+    def test_account_system_branch(self):
+        """
+        What it does: account_system=True.
+        Purpose: Ensure ids come from get_all_available_models, not the first account.
+        """
+        request, manager, _ = self._request(True, ["m1"])
+        _, body = self._call(request)
+        manager.get_all_available_models.assert_called_once()
+        manager.get_first_account.assert_not_called()
+        assert body["data"][0]["id"] == "m1"
+
+    def test_legacy_branch(self):
+        """
+        What it does: account_system=False.
+        Purpose: Ensure ids come from first account's resolver.
+        """
+        request, manager, account = self._request(False, ["m1", "m2"])
+        _, body = self._call(request)
+        manager.get_first_account.assert_called_once()
+        account.model_resolver.get_available_models.assert_called_once()
+        manager.get_all_available_models.assert_not_called()
+        assert [m["id"] for m in body["data"]] == ["m1", "m2"]
+
+    def test_created_stable_across_calls(self):
+        """
+        What it does: Rebuilds the body after time advanced.
+        Purpose: Ensure created does not drift per call/rebuild.
+        """
+        import kiro.routes_openai as ro
+        request, _, _ = self._request(True, ["m1"])
+        _, first = self._call(request)
+        ro._models_response_cache = None
+        with patch("time.time", return_value=time.time() + 100_000):
+            _, second = self._call(request)
+        assert first == second
+
+    def test_memo_hit_reuses_body_and_skips_rebuild(self):
+        """
+        What it does: Calls twice with unchanged ids while ModelList is booby-trapped.
+        Purpose: Ensure the same prebuilt bytes are reused (no re-validation).
+        """
+        import kiro.routes_openai as ro
+        request, _, _ = self._request(True, ["m1", "m2"])
+        r1, _ = self._call(request)
+        cached = ro._models_response_cache
+        with patch.object(ro, "ModelList", side_effect=AssertionError("rebuilt")):
+            r2, _ = self._call(request)
+        assert ro._models_response_cache is cached
+        assert r1.body == r2.body
+
+    def test_memo_miss_when_ids_change(self):
+        """
+        What it does: Changes the id list between calls.
+        Purpose: Ensure the memo is invalidated and the new list is served.
+        """
+        request, manager, _ = self._request(True, ["m1"])
+        _, first = self._call(request)
+        manager.get_all_available_models.return_value = ["m1", "m3"]
+        _, second = self._call(request)
+        assert [m["id"] for m in first["data"]] == ["m1"]
+        assert [m["id"] for m in second["data"]] == ["m1", "m3"]
+
+    def test_order_change_is_a_miss(self):
+        """
+        What it does: Reorders ids.
+        Purpose: Ensure output order follows resolver order.
+        """
+        request, manager, _ = self._request(True, ["a", "b"])
+        self._call(request)
+        manager.get_all_available_models.return_value = ["b", "a"]
+        _, body = self._call(request)
+        assert [m["id"] for m in body["data"]] == ["b", "a"]
+
+    def test_empty_model_list(self):
+        """
+        What it does: Resolver returns no models.
+        Purpose: Ensure a valid empty list is returned.
+        """
+        request, _, _ = self._request(False, [])
+        _, body = self._call(request)
+        assert body == {"object": "list", "data": []}
+
+    def test_request_logged_at_debug_not_info(self):
+        """
+        What it does: Patches the module logger.
+        Purpose: Ensure the per-request log is debug level.
+        """
+        import kiro.routes_openai as ro
+        request, _, _ = self._request(True, ["m1"])
+        with patch.object(ro, "logger") as mock_logger:
+            self._call(request)
+        assert not any("/v1/models" in str(c) for c in mock_logger.info.call_args_list)
+        assert any("/v1/models" in str(c) for c in mock_logger.debug.call_args_list)
+
+    def test_endpoint_via_client_matches_schema(self, test_client, valid_proxy_api_key):
+        """
+        What it does: Calls the real route and validates against ModelList.
+        Purpose: Ensure response body still matches the declared schema.
+        """
+        from kiro.models_openai import ModelList
+        response = test_client.get("/v1/models", headers={"Authorization": f"Bearer {valid_proxy_api_key}"})
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/json")
+        ModelList.model_validate(response.json())
+
+
+class TestDeadCodeRemoved:
+    """Ensures removed dead names stay removed."""
+
+    def test_no_leftover_references(self):
+        """
+        What it does: Checks removed names are absent from their modules.
+        Purpose: Prevent dead code from returning.
+        """
+        import kiro.model_resolver as mr
+        import kiro.models_anthropic as ma
+        assert not hasattr(mr, "VALID_RUNTIME_MODEL_IDS")
+        assert not hasattr(mr, "FALLBACK_MODELS")
+        assert not hasattr(ma, "StreamingEvent")

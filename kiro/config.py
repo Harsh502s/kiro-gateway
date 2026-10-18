@@ -218,9 +218,9 @@ BASE_RETRY_DELAY: float = 1.0
 # We expose them to our users because they're useful.
 HIDDEN_MODELS: Dict[str, str] = {
     # Models that work on Kiro but aren't returned by /ListAvailableModels.
-    # Note: Since runtime.kiro.dev doesn't provide /ListAvailableModels,
-    # the gateway uses FALLBACK_MODELS as the static model list.
-    # Add models here ONLY if they need a different internal ID mapping.
+    # Format: "display_name" → "internal_kiro_id" (use same name if no internal mapping needed)
+    "claude-sonnet-5": "claude-sonnet-5",
+    "claude-opus-4.8": "claude-opus-4.8",
 }
 
 # ==================================================================================================
@@ -590,6 +590,17 @@ ACCOUNT_PROBABILISTIC_RETRY_CHANCE: float = float(os.getenv("ACCOUNT_PROBABILIST
 # Model cache TTL in seconds (12 hours)
 # Cache is refreshed only when account is used (not in background)
 ACCOUNT_CACHE_TTL: int = int(os.getenv("ACCOUNT_CACHE_TTL", "43200"))
+
+# Delay (seconds) before retrying model discovery after a FAILED refresh.
+# Prevents re-running discovery on every request while Kiro is unreachable.
+ACCOUNT_CACHE_RETRY_INTERVAL: int = int(os.getenv("ACCOUNT_CACHE_RETRY_INTERVAL", "300"))
+
+# Opt-in model probing (Tier 2 discovery). Each probe is a REAL, billed inference
+# request to Kiro (one per entry in CANDIDATE_MODELS), so it is disabled by default.
+MODEL_PROBING_ENABLED: bool = os.getenv("MODEL_PROBING_ENABLED", "false").lower() in ("true", "1", "yes")
+
+# Hard cap (seconds) for one model discovery run (Tier 1 + Tier 2 together).
+MODEL_DISCOVERY_TIMEOUT: float = float(os.getenv("MODEL_DISCOVERY_TIMEOUT", "15"))
 
 # ==================================================================================================
 # State Persistence Settings

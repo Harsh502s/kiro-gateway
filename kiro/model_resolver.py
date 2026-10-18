@@ -41,13 +41,6 @@ if TYPE_CHECKING:
     from kiro.cache import ModelInfoCache
 
 
-# Valid model IDs accepted by runtime.{region}.kiro.dev
-# Generated from FALLBACK_MODELS to maintain single source of truth
-from kiro.config import FALLBACK_MODELS
-
-VALID_RUNTIME_MODEL_IDS: set = {model["modelId"] for model in FALLBACK_MODELS}
-
-
 def to_runtime_model_id(normalized: str) -> str:
     """
     Pass-through function for runtime.kiro.dev model ID.

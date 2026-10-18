@@ -536,19 +536,6 @@ class ErrorEvent(BaseModel):
     error: Dict[str, Any]
 
 
-# Union of all streaming events
-StreamingEvent = Union[
-    MessageStartEvent,
-    ContentBlockStartEvent,
-    ContentBlockDeltaEvent,
-    ContentBlockStopEvent,
-    MessageDeltaEvent,
-    MessageStopEvent,
-    PingEvent,
-    ErrorEvent,
-]
-
-
 # ==================================================================================================
 # Error Models
 # ==================================================================================================

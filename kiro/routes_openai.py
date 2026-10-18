@@ -28,6 +28,7 @@ Contains all API endpoints:
 
 import json
 from datetime import datetime, timezone
+from typing import Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, Security
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -119,21 +120,60 @@ async def health():
         "version": APP_VERSION
     }
 
-@router.get("/v1/models", response_model=ModelList, dependencies=[Depends(verify_api_key)])
-async def get_models(request: Request):
+# Memoized /v1/models body: (model ids it was built from, serialized JSON bytes).
+# Rebuilt only when the set/order of available model ids changes.
+_models_response_cache: Optional[Tuple[Tuple[str, ...], bytes]] = None
+
+
+def _build_models_body(model_ids: Tuple[str, ...]) -> bytes:
+    """
+    Serialize the OpenAI-format model list for the given ids, reusing a memoized body.
+
+    Args:
+        model_ids: Ordered tuple of available model ids
+
+    Returns:
+        JSON bytes of ModelList (object/data[id, object, created, owned_by, description])
+    """
+    global _models_response_cache
+    cached = _models_response_cache
+    if cached is not None and cached[0] == model_ids:
+        return cached[1]
+
+    body = ModelList(
+        data=[
+            OpenAIModel(
+                id=model_id,
+                owned_by="anthropic",
+                description="Claude model via Kiro API"
+            )
+            for model_id in model_ids
+        ]
+    ).model_dump_json().encode("utf-8")
+    _models_response_cache = (model_ids, body)
+    logger.debug(f"[Models] Rebuilt /v1/models response ({len(model_ids)} models)")
+    return body
+
+
+@router.get(
+    "/v1/models",
+    dependencies=[Depends(verify_api_key)],
+    responses={200: {"model": ModelList}},
+)
+async def get_models(request: Request) -> Response:
     """
     Return list of available models.
     
     Models are loaded at startup (blocking) and cached.
-    This endpoint returns the cached list.
+    The serialized response is memoized per set of available model ids.
     
     Args:
         request: FastAPI Request for accessing app.state
     
     Returns:
-        ModelList with available models in consistent format (with dots)
+        JSON response with ModelList schema (models in consistent format, with dots)
     """
-    logger.info("Request to /v1/models")
+    logger.debug("Request to /v1/models")
     
     # Get available models based on mode
     if request.app.state.account_system:
@@ -144,17 +184,8 @@ async def get_models(request: Request):
         account = request.app.state.account_manager.get_first_account()
         available_model_ids = account.model_resolver.get_available_models()
     
-    # Build OpenAI-compatible model list
-    openai_models = [
-        OpenAIModel(
-            id=model_id,
-            owned_by="anthropic",
-            description="Claude model via Kiro API"
-        )
-        for model_id in available_model_ids
-    ]
-    
-    return ModelList(data=openai_models)
+    body = _build_models_body(tuple(available_model_ids))
+    return Response(content=body, media_type="application/json")
 
 
 @router.post("/v1/chat/completions", dependencies=[Depends(verify_api_key)])

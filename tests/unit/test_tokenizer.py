@@ -1057,3 +1057,63 @@ class TestTokenizerIntegration:
         assert len(set(results)) == 1, "Results should be consistent"
     
     
+
+
+class TestWarmUpTokenizer:
+    """Tests for warm_up_tokenizer."""
+
+    def test_warm_up_calls_loader(self):
+        """
+        What it does: Calls warm_up_tokenizer with a stubbed loader.
+        Purpose: Ensure the lazy loader is triggered so first count_tokens is fast.
+        """
+        from kiro.tokenizer import warm_up_tokenizer
+        with patch('kiro.tokenizer._get_encoding', return_value=MagicMock()) as loader:
+            assert warm_up_tokenizer() is None
+        loader.assert_called_once()
+
+    def test_warm_up_populates_real_cache(self):
+        """
+        What it does: Resets module cache and runs the real warm-up with tiktoken stubbed.
+        Purpose: Ensure the real lazy loader is exercised and the cache is resolved.
+        """
+        import kiro.tokenizer as tk
+        original = tk._encoding
+        tk._encoding = None
+        try:
+            with patch('tiktoken.get_encoding', return_value=MagicMock()) as get_enc:
+                tk.warm_up_tokenizer()
+            get_enc.assert_called_once_with("cl100k_base")
+            assert tk._encoding is not None
+        finally:
+            tk._encoding = original
+
+    @pytest.mark.parametrize("exc", [OSError("offline"), ValueError("bad"), ImportError("x"), RuntimeError("boom")])
+    def test_warm_up_swallows_loader_errors(self, exc):
+        """
+        What it does: Makes the loader raise specific exceptions.
+        Purpose: Startup must not crash; count_tokens falls back to estimation.
+        """
+        from kiro.tokenizer import warm_up_tokenizer
+        with patch('kiro.tokenizer._get_encoding', side_effect=exc):
+            warm_up_tokenizer()
+
+    def test_warm_up_when_tiktoken_unavailable(self):
+        """
+        What it does: Loader returns None (tiktoken unavailable).
+        Purpose: Ensure warm-up returns cleanly and count_tokens still works.
+        """
+        from kiro.tokenizer import warm_up_tokenizer
+        with patch('kiro.tokenizer._get_encoding', return_value=None):
+            warm_up_tokenizer()
+            assert count_tokens("hello world") > 0
+
+    def test_warm_up_does_not_swallow_unrelated_errors(self):
+        """
+        What it does: Loader raises KeyError (not an expected failure type).
+        Purpose: Ensure only specific exceptions are caught (no bare except).
+        """
+        from kiro.tokenizer import warm_up_tokenizer
+        with patch('kiro.tokenizer._get_encoding', side_effect=KeyError("x")):
+            with pytest.raises(KeyError):
+                warm_up_tokenizer()

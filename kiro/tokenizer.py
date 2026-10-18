@@ -74,6 +74,28 @@ def _get_encoding():
     return _encoding if _encoding else None
 
 
+def warm_up_tokenizer() -> None:
+    """
+    Pre-load the tiktoken cl100k_base encoding so the first count_tokens call is fast.
+
+    Loading may download the BPE file or read the tiktoken cache, which is slow and
+    blocking; call from a worker thread at startup. Never raises: if loading fails,
+    count_tokens falls back to character-based estimation.
+
+    Returns:
+        None
+    """
+    try:
+        encoding = _get_encoding()
+    except (ImportError, OSError, ValueError, RuntimeError) as e:
+        logger.warning(f"[Tokenizer] Warm-up failed, using fallback estimation: {e}")
+        return
+    if encoding is None:
+        logger.warning("[Tokenizer] Warm-up: tiktoken unavailable, using fallback estimation")
+    else:
+        logger.debug("[Tokenizer] Warm-up complete")
+
+
 def count_tokens(text: str, apply_claude_correction: bool = True) -> int:
     """
     Counts the number of tokens in text.

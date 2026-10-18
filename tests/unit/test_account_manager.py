@@ -756,7 +756,7 @@ class TestAccountManagerInitializeAccount:
         account_id = str(test_json.resolve())
         
         # Mock HTTP client for ListAvailableModels
-        with patch('kiro.account_manager.KiroHttpClient') as mock_http_class:
+        with patch('kiro.account_manager.AccountManager._schedule_refresh') as mock_http_class:
             mock_client = AsyncMock()
             mock_response = Mock()  # Response is not async
             mock_response.status_code = 200
@@ -807,7 +807,7 @@ class TestAccountManagerInitializeAccount:
         account_id = str(test_json.resolve())
         
         # Mock HTTP client to fail
-        with patch('kiro.account_manager.KiroHttpClient') as mock_http_class:
+        with patch('kiro.account_manager.AccountManager._schedule_refresh') as mock_http_class:
             mock_client = AsyncMock()
             mock_client.request_with_retry = AsyncMock(side_effect=Exception("Network error"))
             mock_client.close = AsyncMock()
@@ -859,7 +859,7 @@ class TestAccountManagerGetNextAccount:
         account_id = str(test_json.resolve())
         
         # Initialize account
-        with patch('kiro.account_manager.KiroHttpClient') as mock_http_class:
+        with patch('kiro.account_manager.AccountManager._schedule_refresh') as mock_http_class:
             mock_client = AsyncMock()
             mock_response = Mock()  # Response is not async
             mock_response.status_code = 200
@@ -919,7 +919,7 @@ class TestAccountManagerReportSuccess:
         account_id = str(test_json.resolve())
         
         # Initialize account
-        with patch('kiro.account_manager.KiroHttpClient') as mock_http_class:
+        with patch('kiro.account_manager.AccountManager._schedule_refresh') as mock_http_class:
             mock_client = AsyncMock()
             mock_response = Mock()  # Response is not async
             mock_response.status_code = 200
@@ -972,7 +972,7 @@ class TestAccountManagerReportSuccess:
         account_id = str(test_json.resolve())
         
         # Initialize account
-        with patch('kiro.account_manager.KiroHttpClient') as mock_http_class:
+        with patch('kiro.account_manager.AccountManager._schedule_refresh') as mock_http_class:
             mock_client = AsyncMock()
             mock_response = Mock()  # Response is not async
             mock_response.status_code = 200
@@ -1030,7 +1030,7 @@ class TestAccountManagerReportFailure:
         account_id = str(test_json.resolve())
         
         # Initialize account
-        with patch('kiro.account_manager.KiroHttpClient') as mock_http_class:
+        with patch('kiro.account_manager.AccountManager._schedule_refresh') as mock_http_class:
             mock_client = AsyncMock()
             mock_response = Mock()  # Response is not async
             mock_response.status_code = 200
@@ -1083,7 +1083,7 @@ class TestAccountManagerReportFailure:
         account_id = str(test_json.resolve())
         
         # Initialize account
-        with patch('kiro.account_manager.KiroHttpClient') as mock_http_class:
+        with patch('kiro.account_manager.AccountManager._schedule_refresh') as mock_http_class:
             mock_client = AsyncMock()
             mock_response = Mock()  # Response is not async
             mock_response.status_code = 200
@@ -1177,7 +1177,7 @@ class TestAccountManagerGetFirstAccount:
         account_id = str(test_json.resolve())
         
         # Initialize account
-        with patch('kiro.account_manager.KiroHttpClient') as mock_http_class:
+        with patch('kiro.account_manager.AccountManager._schedule_refresh') as mock_http_class:
             mock_client = AsyncMock()
             mock_response = Mock()  # Response is not async
             mock_response.status_code = 200
@@ -1253,7 +1253,7 @@ class TestAccountManagerGetAllAvailableModels:
         account_id = str(test_json.resolve())
         
         # Initialize account
-        with patch('kiro.account_manager.KiroHttpClient') as mock_http_class:
+        with patch('kiro.account_manager.AccountManager._schedule_refresh') as mock_http_class:
             mock_client = AsyncMock()
             mock_response = Mock()  # Response is not async
             mock_response.status_code = 200

@@ -78,6 +78,7 @@ from kiro.config import (
     ACCOUNT_SYSTEM,
     ACCOUNTS_CONFIG_FILE,
     ACCOUNTS_STATE_FILE,
+    DEBUG_MODE,
     _warn_timeout_configuration,
 )
 from kiro.auth import KiroAuthManager
@@ -88,6 +89,7 @@ from kiro.routes_openai import router as openai_router
 from kiro.routes_anthropic import router as anthropic_router
 from kiro.exceptions import validation_exception_handler
 from kiro.debug_middleware import DebugLoggerMiddleware
+from kiro.tokenizer import warm_up_tokenizer
 
 
 # --- Loguru Configuration ---
@@ -316,6 +318,23 @@ def validate_configuration() -> None:
     # Note: Credential loading details are logged by KiroAuthManager
 
 
+def _read_json_or_none(path: Path):
+    """
+    Read a JSON file, returning None if it is missing or unreadable.
+
+    Args:
+        path: Path to the JSON file
+
+    Returns:
+        Parsed JSON value, or None if the file does not exist or is not valid JSON.
+    """
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
 # --- Lifespan Manager ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -444,11 +463,13 @@ async def lifespan(app: FastAPI):
                 _add_env_overrides(entry)
                 credentials.append(entry)
             
-            # Save credentials.json (overwrite if exists)
-            with open(creds_path, 'w', encoding='utf-8') as f:
-                json.dump(credentials, f, indent=2, ensure_ascii=False)
-            
-            logger.debug("credentials.json recreated from .env (legacy mode)")
+            # Save credentials.json only if content differs from what is on disk
+            if _read_json_or_none(creds_path) != credentials:
+                with open(creds_path, 'w', encoding='utf-8') as f:
+                    json.dump(credentials, f, indent=2, ensure_ascii=False)
+                logger.debug("credentials.json recreated from .env (legacy mode)")
+            else:
+                logger.debug("credentials.json already up to date (legacy mode)")
     
     # ==============================================================================
     # Create AccountManager
@@ -502,6 +523,11 @@ async def lifespan(app: FastAPI):
     # Save initial state
     await app.state.account_manager._save_state()
     
+    # Background work (never blocks startup): model discovery for the ready account,
+    # concurrent init of remaining accounts, tokenizer pre-warm.
+    app.state.account_manager.start_background_init()
+    warmup_task = asyncio.create_task(asyncio.to_thread(warm_up_tokenizer), name="tokenizer-warmup")
+    
     # Start background task for periodic state saving
     save_task = asyncio.create_task(
         app.state.account_manager.save_state_periodically()
@@ -514,12 +540,11 @@ async def lifespan(app: FastAPI):
     # Graceful shutdown
     logger.info("Shutting down application...")
     
-    # Cancel background task
+    # Cancel background tasks (state saver, tokenizer warm-up, model discovery)
     save_task.cancel()
-    try:
-        await save_task
-    except asyncio.CancelledError:
-        pass
+    warmup_task.cancel()
+    await asyncio.gather(save_task, warmup_task, return_exceptions=True)
+    await app.state.account_manager.shutdown()
     
     # Final state save
     await app.state.account_manager._save_state()
@@ -557,7 +582,9 @@ app.add_middleware(
 # --- Debug Logger Middleware ---
 # Initializes debug logging BEFORE Pydantic validation
 # This allows capturing validation errors (422) in debug logs
-app.add_middleware(DebugLoggerMiddleware)
+# Only registered when debug logging is enabled (no per-request overhead otherwise)
+if DEBUG_MODE != "off":
+    app.add_middleware(DebugLoggerMiddleware)
 
 
 # --- Validation Error Handler Registration ---
