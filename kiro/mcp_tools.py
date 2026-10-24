@@ -40,7 +40,12 @@ import httpx
 from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 
+from kiro.config import PROFILE_ARN
 from kiro.tokenizer import count_message_tokens, count_tokens
+from kiro.utils import get_kiro_headers
+
+# Max characters of an MCP error response body written to the log
+MCP_ERROR_BODY_LOG_LIMIT = 500
 
 # Import debug_logger
 try:
@@ -133,9 +138,11 @@ async def call_kiro_mcp_api(
         "params": {
             "name": "web_search",
             "arguments": {"query": query}
-        }
+        },
+        # runtime.kiro.dev rejects /mcp without profileArn (400), same as chat requests
+        "profileArn": auth_manager.profile_arn or PROFILE_ARN or ""
     }
-    
+
     # Log MCP request
     try:
         mcp_request_json = json.dumps(mcp_request, ensure_ascii=False, indent=2).encode('utf-8')
@@ -147,13 +154,13 @@ async def call_kiro_mcp_api(
     try:
         token = await auth_manager.get_access_token()
         
-        # EXACT headers from architecture
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "x-amzn-codewhisperer-optout": "false",
-            "Content-Type": "application/json"
-        }
-        
+        # /mcp needs the same Kiro client-identity headers as the chat path;
+        # reuse them and override what differs (JSON-RPC, no x-amz-target).
+        headers = get_kiro_headers(auth_manager, token)
+        headers["Content-Type"] = "application/json"
+        headers.pop("x-amz-target", None)
+        headers["x-amzn-codewhisperer-optout"] = "false"
+
         mcp_url = f"{auth_manager.q_host}/mcp"
         logger.debug(f"Calling MCP API: {mcp_url}")
         
@@ -161,7 +168,8 @@ async def call_kiro_mcp_api(
             response = await client.post(mcp_url, json=mcp_request, headers=headers)
             
             if response.status_code != 200:
-                logger.error(f"MCP API error: {response.status_code}")
+                body = str(getattr(response, "text", ""))[:MCP_ERROR_BODY_LOG_LIMIT]
+                logger.error(f"MCP API error: {response.status_code} - {body}")
                 return None, None
             
             mcp_response = response.json()
